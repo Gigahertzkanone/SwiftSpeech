@@ -68,8 +68,8 @@ public extension SwiftSpeech.ViewModifiers {
         var delegate = SwiftSpeech.FunctionalComponentDelegate()
         
         var gesture: some Gesture {
-            let longPress = LongPressGesture(minimumDuration: 60)
-                .onChanged { _ in
+            let longPress = LongPressGesture(minimumDuration: 0)
+                .onEnded { _ in
                     withAnimation(self.animation, self.startRecording)
                 }
             
