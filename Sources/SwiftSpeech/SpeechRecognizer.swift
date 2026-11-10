@@ -42,7 +42,16 @@ public class SpeechRecognizer {
             .eraseToAnyPublisher()
     }
     
+    /// Serial queue for the audio session and the audio engine. Activating and
+    /// deactivating an `AVAudioSession` blocks its caller and must not run on the main thread.
+    private let audioQueue = DispatchQueue(label: "SwiftSpeech.SpeechRecognizer.audio", qos: .userInitiated)
+    
     public func startRecording() {
+        audioQueue.async { self.startAudio() }
+    }
+    
+    /// Runs on `audioQueue`.
+    private func startAudio() {
         do {
             // Cancel the previous task if it's running.
             recognitionTask?.cancel()
@@ -64,7 +73,6 @@ public class SpeechRecognizer {
             recognitionRequest.requiresOnDeviceRecognition = sessionConfiguration.requiresOnDeviceRecognition
             recognitionRequest.taskHint = sessionConfiguration.taskHint
             recognitionRequest.contextualStrings = sessionConfiguration.contextualStrings
-            recognitionRequest.interactionIdentifier = sessionConfiguration.interactionIdentifier
             
             // Create a recognition task for the speech recognition session.
             // Keep a reference to the task so that it can be cancelled.
@@ -94,12 +102,30 @@ public class SpeechRecognizer {
             audioEngine.prepare()
             try audioEngine.start()
         } catch {
-            resultSubject.send(completion: .failure(error))
-            SpeechRecognizer.remove(id: self.id)
+            fail(with: error)
         }
     }
     
     public func stopRecording() {
+        audioQueue.async {
+            do {
+                try self.stopAudio()
+            } catch {
+                self.fail(with: error)
+            }
+        }
+    }
+    
+    /// Publishes the error and disposes of the instance, on the main queue like the recognition results.
+    private func fail(with error: Error) {
+        DispatchQueue.main.async {
+            self.resultSubject.send(completion: .failure(error))
+            SpeechRecognizer.remove(id: self.id)
+        }
+    }
+    
+    /// Runs on `audioQueue`.
+    private func stopAudio() throws {
         
         // Call this method explicitly to let the speech recognizer know that no more audio input is coming.
         self.recognitionRequest?.endAudio()
@@ -114,22 +140,26 @@ public class SpeechRecognizer {
         self.audioEngine.stop()
         self.audioEngine.inputNode.removeTap(onBus: 0)
         
-        do {
-            try sessionConfiguration.audioSessionConfiguration.onStopRecording(AVAudioSession.sharedInstance())
-        } catch {
-            resultSubject.send(completion: .failure(error))
-            SpeechRecognizer.remove(id: self.id)
-        }
-        
+        try sessionConfiguration.audioSessionConfiguration.onStopRecording(AVAudioSession.sharedInstance())
     }
     
     /// Call this method to immediately stop recording AND the recognition task (i.e. stop recognizing & receiving results).
     /// This method will call `stopRecording()` first and then send a completion (`.finished`) event to the publishers. Finally, it will cancel the recognition task and dispose of the SpeechRecognizer instance.
     public func cancel() {
-        stopRecording()
-        resultSubject.send(completion: .finished)
-        recognitionTask?.cancel()
-        SpeechRecognizer.remove(id: self.id)
+        audioQueue.async {
+            let stopError: Error?
+            do {
+                try self.stopAudio()
+                stopError = nil
+            } catch {
+                stopError = error
+            }
+            self.recognitionTask?.cancel()
+            DispatchQueue.main.async {
+                self.resultSubject.send(completion: stopError.map { .failure($0) } ?? .finished)
+                SpeechRecognizer.remove(id: self.id)
+            }
+        }
     }
     
     // MARK: - Init

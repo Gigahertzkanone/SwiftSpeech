@@ -51,7 +51,7 @@ extension SwiftSpeech {
     }
 }
 
-extension SFSpeechRecognizerAuthorizationStatus: CustomStringConvertible {
+extension SFSpeechRecognizerAuthorizationStatus: @retroactive CustomStringConvertible {
     public var description: String {
         "\(rawValue)"
     }

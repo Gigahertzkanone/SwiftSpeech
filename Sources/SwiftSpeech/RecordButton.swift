@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import Speech
 
 public extension SwiftSpeech {
     /**
